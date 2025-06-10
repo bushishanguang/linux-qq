@@ -1,0 +1,3 @@
+/home/ruoan/Documents/coding/c++/linux-qq/client/build/CMakeFiles/TestClient.dir
+/home/ruoan/Documents/coding/c++/linux-qq/client/build/CMakeFiles/edit_cache.dir
+/home/ruoan/Documents/coding/c++/linux-qq/client/build/CMakeFiles/rebuild_cache.dir
