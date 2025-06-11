@@ -27,6 +27,7 @@ struct MessageRecord {
     int receiver;
     std::string content;
     bool delivered;
+    std::string timestamp;
 };
 
 // 群组记录结构体
@@ -84,6 +85,7 @@ public:
     bool storeMessage(int senderId, int receiverId, const std::string &content, int groupId = -1);
     std::vector<MessageRecord> loadOffline(int receiverId, int groupId = -1);
     bool markDelivered(int msgId);
+    std::vector<MessageRecord> getChatHistory(int userId, int friendId, int limit = 50);
 
     // 群组管理
     bool createGroup(const std::string &groupName);  // 创建群组

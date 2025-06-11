@@ -51,6 +51,7 @@ private:
 
     // 私聊相关
     void handlePrivateMessage(const sockaddr_in &addr, const std::vector<uint8_t> &body); // 处理私聊消息
+    void handleChatHistory(const sockaddr_in &addr, const std::vector<uint8_t> &body);
 
     int sockfd;
     sockaddr_in serverAddr;

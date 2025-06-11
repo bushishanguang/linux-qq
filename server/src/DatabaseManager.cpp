@@ -113,7 +113,6 @@ bool DatabaseManager::isFriendRequestExists(int u, int f) {
 bool DatabaseManager::sendFriendRequest(int u, int f) {
     // 检查是否已经发送过请求（双向检查）
     {
-        std::lock_guard<std::mutex> l(mtx);
         if (isFriendRequestExists(u, f)) {
             std::cout << "[ERROR] 用户 " << u << " 和用户 " << f << " 之间已经有待确认的好友请求" << std::endl;
             return false;  // 已经有待确认的请求，阻止重复发送
@@ -501,4 +500,42 @@ void DatabaseManager::sendGroupMessage(int senderId, const std::string &content,
             storeMessage(senderId, memberId, content, groupId);  // 为每个成员存储群组消息
         }
     }
+}
+
+std::vector<MessageRecord> DatabaseManager::getChatHistory(int userId, int friendId, int limit) {
+    std::vector<MessageRecord> msgs;
+    std::lock_guard<std::mutex> l(mtx);
+    sqlite3_stmt *st;
+
+    const char *sql =
+        "SELECT msg_id, sender_id, receiver_id, content, timestamp "
+        "FROM Messages "
+        "WHERE group_id IS NULL AND "
+        "((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) "
+        "ORDER BY timestamp DESC LIMIT ?;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
+        std::cerr << "[ERROR] prepare getChatHistory: " << sqlite3_errmsg(db) << std::endl;
+        return msgs;
+    }
+
+    sqlite3_bind_int(st, 1, userId);
+    sqlite3_bind_int(st, 2, friendId);
+    sqlite3_bind_int(st, 3, friendId);
+    sqlite3_bind_int(st, 4, userId);
+    sqlite3_bind_int(st, 5, limit);
+
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        MessageRecord rec;
+        rec.msgId = sqlite3_column_int(st, 0);
+        rec.sender = sqlite3_column_int(st, 1);
+        rec.receiver = sqlite3_column_int(st, 2);
+        rec.content = reinterpret_cast<const char*>(sqlite3_column_text(st, 3));
+        rec.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(st, 4));  // 如果你有 timestamp 字段
+
+        msgs.push_back(rec);
+    }
+
+    sqlite3_finalize(st);
+    return msgs;
 }

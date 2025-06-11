@@ -77,6 +77,7 @@ void ChatServer::handlePacket(const sockaddr_in &addr, const std::vector<uint8_t
         case REGISTER_REQ:               handleRegister(addr, body);                break;
         case LOGIN_REQ:                  handleLogin(addr, body);                   break;
         case LOGOUT_REQ:                 handleLogout(addr, body);                  break;
+        case DELETE_USER_REQ:            handleDeleteUser(addr, body);              break;
         case CREATE_GROUP_REQ:           handleCreateGroup(addr, body);             break;  // 创建群组请求
         case JOIN_GROUP_REQ:             handleJoinGroup(addr, body);               break;  // 加入群组请求
         case PRIVATE_MSG_REQ:            handlePrivateMessage(addr, body);          break;
@@ -87,6 +88,8 @@ void ChatServer::handlePacket(const sockaddr_in &addr, const std::vector<uint8_t
         case FRIEND_LIST_REQ:            handleFriendList(addr, body);              break;
         case BLOCK_USER_REQ:             handleBlockUser(addr, body);               break;
         case UNBLOCK_USER_REQ:           handleUnblockUser(addr, body);             break;
+        case UPDATE_USER_REQ:            handleUpdateUser(addr, body);              break;
+        case CHAT_HISTORY_REQ:           handleChatHistory(addr, body);             break;
         default:
             std::cerr << "[WARN] Unknown packet type: " << static_cast<int>(hdr.type) << std::endl;
             break;
@@ -103,15 +106,13 @@ void ChatServer::handleRegister(const sockaddr_in &addr, const std::vector<uint8
 void ChatServer::handleLogin(const sockaddr_in &addr, const std::vector<uint8_t> &body) {
     const char *p = reinterpret_cast<const char*>(body.data());
     int userId = -1;
-    bool ok = db.verifyUser(p, p + strlen(p) + 1, userId);  // 验证用户
+    bool ok = db.verifyUser(p, p + strlen(p) + 1, userId);
 
     std::cout << "[DEBUG] Login attempt by userId: " << userId << std::endl;
 
-    // 检查用户是否已在线
     if (ok) {
         std::lock_guard<std::mutex> lk(clientsMutex);
-
-        if (onlineClients.count(userId)) {  // 用户已在线，登录失败
+        if (onlineClients.count(userId)) {
             ok = false;
             std::cout << "[INFO] 用户 " << userId << " 已在线，无法重新登录" << std::endl;
         } else {
@@ -120,22 +121,40 @@ void ChatServer::handleLogin(const sockaddr_in &addr, const std::vector<uint8_t>
         }
     }
 
-    // 准备登录响应
     std::vector<uint8_t> payload(1 + sizeof(int));
     payload[0] = ok;
     int netUserId = htonl(userId);
     memcpy(payload.data() + 1, &netUserId, sizeof(int));
-    sendPacket(sockfd, addr, LOGIN_RESP, payload);  // 发送登录响应
+    sendPacket(sockfd, addr, LOGIN_RESP, payload);
     std::cout << "[RESP] Login " << (ok ? "Success" : "Fail") << std::endl;
+
+    // === 主动推送离线消息 ===
+    if (ok) {
+        auto messages = db.loadOffline(userId, -1);
+        std::vector<uint8_t> payload;
+        payload.push_back(1); // 成功标志
+
+        for (const auto& msg : messages) {
+            int netSender = htonl(msg.sender);
+            uint32_t len = msg.content.size();
+            uint32_t netLen = htonl(len);
+            payload.insert(payload.end(), reinterpret_cast<uint8_t*>(&netSender), reinterpret_cast<uint8_t*>(&netSender) + sizeof(int));
+            payload.insert(payload.end(), reinterpret_cast<uint8_t*>(&netLen), reinterpret_cast<uint8_t*>(&netLen) + sizeof(uint32_t));
+            payload.insert(payload.end(), msg.content.begin(), msg.content.end());
+
+            db.markDelivered(msg.msgId);
+        }
+
+        sendPacket(sockfd, addr, OFFLINE_MSG_LIST_RESP, payload);
+        std::cout << "[RESP] OfflineMsgList, count = " << messages.size() << std::endl;
+    }
 }
+
 
 
 void ChatServer::handleLogout(const sockaddr_in &addr, const std::vector<uint8_t> &body) {
     int userId;
     memcpy(&userId, body.data(), sizeof(userId));
-
-    // 将用户 ID 从网络字节序转换为主机字节序
-    userId = ntohl(userId);
 
     // 确保用户从在线用户列表中移除
     {
@@ -151,8 +170,6 @@ void ChatServer::handleLogout(const sockaddr_in &addr, const std::vector<uint8_t
     // 响应客户端，确认退出
     sendSimpleResponseWithLog(sockfd, addr, LOGOUT_RESP, true, "Logout");
 }
-
-
 
 
 void ChatServer::handleUpdateUser(const sockaddr_in &addr, const std::vector<uint8_t> &body) {
@@ -177,6 +194,8 @@ void ChatServer::handleFriendRequest(const sockaddr_in &addr, const std::vector<
     memcpy(&u, body.data(), sizeof(u));
     memcpy(&f, body.data() + sizeof(u), sizeof(f));
 
+    std::cout << "[DEBUG] 收到好友请求: " << u << " -> " << f << std::endl;
+
     if (u == f) {
         std::cerr << "[ERROR] 用户尝试添加自己为好友" << std::endl;
         sendSimpleResponseWithLog(sockfd, addr, FRIEND_REQUEST_RESP, false, "FriendRequest - 用户尝试添加自己");
@@ -185,6 +204,7 @@ void ChatServer::handleFriendRequest(const sockaddr_in &addr, const std::vector<
 
     // 检查是否已经发送过好友请求（包括双向请求）
     bool alreadyRequested = db.isFriendRequestExists(u, f) || db.isFriendRequestExists(f, u);
+    std::cout << "[DEBUG] 检查是否已经发送过好友请求" << std::endl;
     if (alreadyRequested) {
         std::cout << "[INFO] 用户 " << u << " 和用户 " << f << " 之间已经有待确认的好友请求" << std::endl;
         sendSimpleResponseWithLog(sockfd, addr, FRIEND_REQUEST_RESP, false, "FriendRequest - 已有待确认请求");
@@ -193,6 +213,7 @@ void ChatServer::handleFriendRequest(const sockaddr_in &addr, const std::vector<
 
     // 如果没有重复请求，则继续发送好友请求
     bool ok = db.sendFriendRequest(u, f);
+    std::cout << "[DEBUG] 插入好友请求结果: " << ok << std::endl;
     sendSimpleResponseWithLog(sockfd, addr, FRIEND_REQUEST_RESP, ok, "FriendRequest");
 }
 
@@ -372,4 +393,26 @@ void ChatServer::handlePrivateMessage(const sockaddr_in &addr, const std::vector
     sendSimpleResponseWithLog(sockfd, addr, PRIVATE_MSG_RESP, true, "PrivateMessage");
 }
 
+void ChatServer::handleChatHistory(const sockaddr_in &addr, const std::vector<uint8_t> &body) {
+    int userId, peerId;
+    memcpy(&userId, body.data(), sizeof(userId));
+    memcpy(&peerId, body.data() + sizeof(userId), sizeof(peerId));
+
+    auto history = db.getChatHistory(userId, peerId);  // 假设是双向查询
+
+    std::vector<uint8_t> payload;
+    payload.push_back(1); // 成功标志
+
+    for (const auto& msg : history) {
+        int netSender = htonl(msg.sender);
+        uint32_t len = msg.content.size();
+        uint32_t netLen = htonl(len);
+        payload.insert(payload.end(), reinterpret_cast<uint8_t*>(&netSender), reinterpret_cast<uint8_t*>(&netSender) + sizeof(int));
+        payload.insert(payload.end(), reinterpret_cast<uint8_t*>(&netLen), reinterpret_cast<uint8_t*>(&netLen) + sizeof(uint32_t));
+        payload.insert(payload.end(), msg.content.begin(), msg.content.end());
+    }
+
+    sendPacket(sockfd, addr, CHAT_HISTORY_RESP, payload);
+    std::cout << "[RESP] ChatHistory, count = " << history.size() << std::endl;
+}
 

@@ -64,7 +64,7 @@ void sendRequest(const std::vector<uint8_t> &pkt) {
             if (ok) {
                 currentUserId = -1;
                 std::cout << ", 已退出登录" << std::endl;
-            }
+            }   
             break;
 
         case DELETE_USER_RESP:
@@ -169,11 +169,10 @@ void sendRequest(const std::vector<uint8_t> &pkt) {
 
 void handleSigint(int) {
     if (currentUserId >= 0) {
-        int netId = htonl(currentUserId);
         PacketHeader hdr{LOGOUT_REQ, sizeof(int)};
         std::vector<uint8_t> pkt(sizeof(hdr) + sizeof(int));
         memcpy(pkt.data(), &hdr, sizeof(hdr));
-        memcpy(pkt.data() + sizeof(hdr), &netId, sizeof(netId));
+        memcpy(pkt.data() + sizeof(hdr), &currentUserId, sizeof(currentUserId));
 
         // 发送退出登录请求
         sendto(sock, pkt.data(), pkt.size(), 0, reinterpret_cast<const sockaddr*>(&serv), sizeof(serv));
@@ -295,8 +294,7 @@ int main() {
 
             // 构建请求
             pkt = buildPacket(FRIEND_REQUEST_REQ, body);
-            break;
-        }
+        } break;
 
         case 6: {
             if (currentUserId < 0) break;

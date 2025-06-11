@@ -3,16 +3,23 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
+// === 消息类型定义 ===
 enum MessageType : uint8_t {
-    LOGIN_REQ = 1,
-    LOGIN_RESP,
-    REGISTER_REQ,
+    // === 账户相关 ===
+    REGISTER_REQ = 1,
     REGISTER_RESP,
+    LOGIN_REQ,
+    LOGIN_RESP,
+    LOGOUT_REQ,
+    LOGOUT_RESP,
     UPDATE_USER_REQ,
     UPDATE_USER_RESP,
     DELETE_USER_REQ,
     DELETE_USER_RESP,
+
+    // === 好友系统 ===
     FRIEND_REQUEST_REQ,
     FRIEND_REQUEST_RESP,
     FRIEND_REQUEST_LIST_REQ,
@@ -21,58 +28,82 @@ enum MessageType : uint8_t {
     FRIEND_REQUEST_ACTION_RESP,
     DELETE_FRIEND_REQ,
     DELETE_FRIEND_RESP,
-
     BLOCK_USER_REQ,
     BLOCK_USER_RESP,
     UNBLOCK_USER_REQ,
     UNBLOCK_USER_RESP,
-
     FRIEND_LIST_REQ,
     FRIEND_LIST_RESP,
 
-    // === 聊天、退出、新功能 ===
-    CHAT_MSG_REQ = 100,
-    CHAT_MSG_RESP = 101,
-    OFFLINE_MSG_LIST_RESP = 102,
-    LOGOUT_REQ = 103,
-    LOGOUT_RESP = 104,
+    // === 群组系统 ===
+    CREATE_GROUP_REQ,
+    CREATE_GROUP_RESP,
+    JOIN_GROUP_REQ,
+    JOIN_GROUP_RESP,
+    GROUP_MSG,
 
-    // === 群聊、文件、心跳 ===
-    GROUP_MSG = 120,              // 群组消息
-    FILE_REQ,
-    FILE_ACK,
-    FILE_DATA,
-    FILE_DONE,
-    HEARTBEAT,
+    // === 私聊系统 ===
+    PRIVATE_MSG_REQ = 140,
+    PRIVATE_MSG_RESP,
+    PRIVATE_MSG_PUSH,
+    OFFLINE_MSG_LIST_RESP,
 
-    // === 群组相关 ===
-    CREATE_GROUP_REQ = 130,       // 创建群组请求
-    CREATE_GROUP_RESP,            // 创建群组响应
-    JOIN_GROUP_REQ,               // 加入群组请求
-    JOIN_GROUP_RESP,              // 加入群组响应
-
-    // === 好友私聊 ===
-    PRIVATE_MSG_REQ = 140,        // 私聊消息请求
-    PRIVATE_MSG_RESP              // 私聊消息响应
+    // === 聊天记录 ===
+    CHAT_HISTORY_REQ,
+    CHAT_HISTORY_RESP
 };
 
-// 协议头结构
+// === 协议头结构 ===
 struct PacketHeader {
-    uint8_t  type;        // 消息类型
-    uint32_t length;      // 消息长度
+    uint8_t type;
+    uint32_t length;  // payload长度
 };
 
-// 私聊消息请求结构
+// === 私聊消息 ===
 struct PrivateMsgReq {
-    int senderId;         // 发送者ID
-    int receiverId;       // 接收者ID
-    std::string message;  // 消息内容
+    int senderId;
+    int receiverId;
+    std::string message;
 };
 
-// 私聊消息响应结构
 struct PrivateMsgResp {
-    bool success;         // 成功标志
-    std::string errorMsg; // 错误消息（如果有）
+    bool success;
+    std::string errorMsg;
+};
+
+struct PrivateMsgPush {
+    int senderId;
+    std::string message;
+    std::string timestamp;
+};
+
+// === 离线消息结构 ===
+struct OfflineMsg {
+    int msgId;
+    int senderId;
+    std::string content;
+    std::string timestamp;
+};
+
+struct OfflineMsgListResp {
+    std::vector<OfflineMsg> messages;
+};
+
+// === 聊天记录请求与响应 ===
+struct ChatHistoryReq {
+    int userId;
+    int friendId;
+    int limit;
+};
+
+struct ChatMessage {
+    int senderId;
+    std::string content;
+    std::string timestamp;
+};
+
+struct ChatHistoryResp {
+    std::vector<ChatMessage> messages;
 };
 
 #endif // PROTOCOL_H
